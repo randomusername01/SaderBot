@@ -83,6 +83,44 @@ def get_character_avatar(character_id):
             f"Failed to fetch data from the API. Status code: {response.status_code}"
         )
 
+def get_buff_avatar(character_id):
+    api_url = f"https://api.dfoneople.com/df/servers/cain/characters/{character_id}/skill/buff/equip/avatar?apikey={API_KEY}"
+    response = requests.get(api_url)
+
+    if response.status_code == 200:
+        data = response.json()
+        if "avatar" in data:
+            return [avatar['slotId'] for avatar in data["avatar"]]
+        return []
+    else:
+        raise Exception(
+            f"Failed to fetch data from the API. Status code: {response.status_code}"
+        )
+
+def get_character_creature(character_id):
+    api_url = f"https://api.dfoneople.com/df/servers/cain/characters/{character_id}/equip/creature?apikey={API_KEY}"
+    response = requests.get(api_url)
+
+    if response.status_code == 200:
+        data = response.json()
+        return data.get("creature", [])
+    else:
+        raise Exception(
+            f"Failed to fetch data from the API. Status code: {response.status_code}"
+        )
+
+def get_buff_creature(character_id):
+    api_url = f"https://api.dfoneople.com/df/servers/cain/characters/{character_id}/skill/buff/equip/creature?apikey={API_KEY}"
+    response = requests.get(api_url)
+
+    if response.status_code == 200:
+        data = response.json()
+        return data.get("itemId")
+    else:
+        raise Exception(
+            f"Failed to fetch data from the API. Status code: {response.status_code}"
+        )
+
 def get_item_details(item_id):
     api_url = f"https://api.dfoneople.com/df/items/{item_id}?apikey={API_KEY}"
     response = requests.get(api_url)
@@ -97,7 +135,7 @@ def get_item_details(item_id):
 def normalize_string(s):
     return " ".join(s.lower().split())
 
-def search_in_json(data, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option=False, in_avatar=False):
+def search_in_json(data, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option=False):
     matches = []
 
     if isinstance(data, dict):
@@ -116,21 +154,10 @@ def search_in_json(data, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option=
                     if normalize_string(term) in normalize_string(str(value)):
                         matches.append((term, TEXT_TO_SKILL_BONUS_MAPPING[term]))
                         counters[term] += 1
-            elif in_avatar and key == "optionAbility":
-                for term in TEXT_TO_SKILL_BONUS_MAPPING:
-                    if normalize_string(term) in normalize_string(str(value)):
-                        matches.append((term, TEXT_TO_SKILL_BONUS_MAPPING[term]))
-                        counters[term] += 1
-            elif in_avatar and key == "emblems":
-                for emblem in value:
-                    for term in TEXT_TO_SKILL_BONUS_MAPPING:
-                        if normalize_string(term) in normalize_string(str(emblem)):
-                            matches.append((term, TEXT_TO_SKILL_BONUS_MAPPING[term]))
-                            counters[term] += 1
             elif isinstance(value, (dict, list)):
                 matches.extend(
                     search_in_json(
-                        value, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option, in_avatar
+                        value, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option
                     )
                 )
             elif in_fixed_option and key == "explainDetail":
@@ -147,7 +174,7 @@ def search_in_json(data, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option=
         for item in data:
             matches.extend(
                 search_in_json(
-                    item, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option, in_avatar
+                    item, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option
                 )
             )
 
@@ -156,6 +183,7 @@ def search_in_json(data, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option=
 def search_items(character_id, TEXT_TO_SKILL_BONUS_MAPPING):
     equipment = get_character_equipment(character_id)
     avatar = get_character_avatar(character_id)
+    buff_avatars = get_buff_avatar(character_id)
     matched_items = []
     counters = {term: 0 for term in TEXT_TO_SKILL_BONUS_MAPPING}
     
@@ -174,8 +202,10 @@ def search_items(character_id, TEXT_TO_SKILL_BONUS_MAPPING):
                 })
     
     for item in avatar:
-        if 'optionAbility' in item or 'emblems' in item:
-            matches = search_in_json(item, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_avatar=True)
+        if item['slotId'] not in buff_avatars:
+            if 'enchant' in item:
+                search_in_json(item['enchant'], TEXT_TO_SKILL_BONUS_MAPPING, counters)
+            matches = search_in_json(item, TEXT_TO_SKILL_BONUS_MAPPING, counters)
             if matches:
                 matched_items.append({
                     'itemName': item.get('itemName'),
@@ -219,12 +249,11 @@ TEXT_TO_SKILL_BONUS_MAPPING = {
         (95, 2, "both"),
         (100, 2, "both"),
     ],
-    "Puppeteer": [(15, 3, "passive")], #lvl 15 skill enchant
-    "Aura of Conviction": [(48, 3, "passive")],
+    "Puppeteer": [(15, 3, "both")],
     "Divine Invocation": [(30, 1, "active")],
-    "Forbidden Curse": [(30, 1, "active")],
-    "Lovely Tempo": [(30, 1, "active")],
-    "Valor Blessing": [(30, 1, "active")],
+    "Forbidden Curse Skill Lv +1": [(30, 1, "active")],
+    "Lovely Tempo Skill Lv +1": [(30, 1, "active")],
+    "Valor Blessing Skill Lv +1": [(30, 1, "active")],
 }
 
 character_name = "DrProfessor"
@@ -232,6 +261,7 @@ character_id = get_character_id(character_name)
 character_status = get_character_status(character_id)
 equipment = get_character_equipment(character_id)
 matched_items, counters = search_items(character_id, TEXT_TO_SKILL_BONUS_MAPPING)
+item_detail = get_item_details("e32b3fff2b80149f792fc24a1b8d4fb4")
 
 print(f"Character ID for {character_name}: {character_id}")
 
