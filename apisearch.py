@@ -1,5 +1,6 @@
 import requests
 import toml
+import json
 
 config = toml.load("config.toml")
 
@@ -180,10 +181,37 @@ def search_in_json(data, TEXT_TO_SKILL_BONUS_MAPPING, counters, in_fixed_option=
 
     return matches
 
+def get_character_skill_tree(character_id):
+    api_url = f"https://api.dfoneople.com/df/servers/cain/characters/{character_id}/skill/style?apikey={API_KEY}"
+    response = requests.get(api_url)
+
+    if response.status_code == 200:
+        data = response.json()
+        return data.get("skill", {}).get("style", {"active": [], "passive": []})
+    else:
+        raise Exception(
+            f"Failed to fetch data from the API. Status code: {response.status_code}"
+        )
+
+def apply_skill_increments(skill_tree, counters, TEXT_TO_SKILL_BONUS_MAPPING):
+
+    active_skills = skill_tree['active']
+    passive_skills = skill_tree['passive']
+
+    for skill in active_skills:
+        skill_id = skill['skillId']
+        skill_name = skill['name']
+        skill_level = skill['level']
+        skill_required_level = skill['requiredLevel']
+        skill_cost_type = skill['costType']
+        print(f"Skill summary:\n  ID: {skill_id}\n  Name: {skill_name}\n  Level:  {skill_level}")
+
+
 def search_items(character_id, TEXT_TO_SKILL_BONUS_MAPPING):
     equipment = get_character_equipment(character_id)
     avatar = get_character_avatar(character_id)
     buff_avatars = get_buff_avatar(character_id)
+    creature_id = get_buff_creature(character_id)
     matched_items = []
     counters = {term: 0 for term in TEXT_TO_SKILL_BONUS_MAPPING}
     
@@ -212,9 +240,23 @@ def search_items(character_id, TEXT_TO_SKILL_BONUS_MAPPING):
                     'itemDescription': item,
                     'matches': matches
                 })
+
+    if creature_id:
+        creature_details = get_item_details(creature_id)
+        search_in_json(creature_details, TEXT_TO_SKILL_BONUS_MAPPING, counters)
+    else:
+        creature = get_character_creature(character_id)
+        if 'enchant' in creature:
+            search_in_json(creature['enchant'], TEXT_TO_SKILL_BONUS_MAPPING, counters)
+        matches = search_in_json(creature, TEXT_TO_SKILL_BONUS_MAPPING, counters)
+        if matches:
+            matched_items.append({
+                'itemName': creature.get('itemName'),
+                'itemDescription': creature,
+                'matches': matches
+            })
     
     return matched_items, counters
-
 
 TEXT_TO_SKILL_BONUS_MAPPING = {
     "Lv. 30 Buff Skill Levels +1": [(30, 1, "both")],
@@ -249,7 +291,7 @@ TEXT_TO_SKILL_BONUS_MAPPING = {
         (95, 2, "both"),
         (100, 2, "both"),
     ],
-    "Puppeteer": [(15, 3, "both")],
+    "Puppeteer": [(15, 3, "both")], # Used for enchant
     "Divine Invocation": [(30, 1, "active")],
     "Forbidden Curse Skill Lv +1": [(30, 1, "active")],
     "Lovely Tempo Skill Lv +1": [(30, 1, "active")],
@@ -262,9 +304,12 @@ character_status = get_character_status(character_id)
 equipment = get_character_equipment(character_id)
 matched_items, counters = search_items(character_id, TEXT_TO_SKILL_BONUS_MAPPING)
 item_detail = get_item_details("e32b3fff2b80149f792fc24a1b8d4fb4")
+skill_tree = get_character_skill_tree(character_id)
 
 print(f"Character ID for {character_name}: {character_id}")
 
 print("Occurrences:")
 for term, count in counters.items():
     print(f"{term}: {count} times")
+
+apply_skill_increments(skill_tree, counters, TEXT_TO_SKILL_BONUS_MAPPING)
